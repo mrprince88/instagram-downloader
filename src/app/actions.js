@@ -84,27 +84,80 @@ export async function fetchPostInfo(url) {
 
             if (targetScriptContent) {
                 // 1. Try to narrow down to the specific "items" block for this code if possible
-                // "items":[{"code":"CODE" ... }]
-                // Regex to capture the specific item block for this code?
-                // It is safer to parse the whole script IF we are sure it's the right script.
-                // Given we matched `code` + `data keys`, it's likely the right script.
-                // But valid concern: Does this script ALSO contain "Related Posts"?
-                // Usually Related Posts are loaded in a separate query/script.
-                // If they are in the same script, they are usually structurally separate.
-                // "items" usually contains ONLY the main post.
+                // Use Regex to find "items" : [ with optional whitespace
+                const itemsKeyRegex = /"items"\s*:\s*\[/;
+                const itemsKeyMatch = targetScriptContent.match(itemsKeyRegex);
 
-                // PRIORITY 1: Check for "items" block matching the code
-                // This is the Gold Standard for accuracy (Step 339 logic)
-                if (targetScriptContent.includes('"items":[')) {
-                    const itemsRegex = /"items":\[(\{.*?\})\]/g;
-                    // We need to iterate all item blocks? usually there is only one "items" array in the shim.
-                    // But let's be careful.
-                    // Let's use the Global Scan logic WITHIN this target script.
-                    // But if the target script contains related items?
-                    // Let's rely on the resolution filter + unique Set.
+                if (itemsKeyMatch) {
+                    try {
+                        const itemsStartIndex = itemsKeyMatch.index;
+                        // We found where "items" starts. Now find the opening bracket '['
+                        // The regex matched up to [ so the bracket is at match.index + match[0].length - 1
+
+                        // Let's simply search for [ starting from itemsStartIndex
+                        const arrayStart = targetScriptContent.indexOf('[', itemsStartIndex);
+
+                        if (arrayStart !== -1) {
+                            let depth = 0;
+                            let end = -1;
+                            let inStr = false;
+
+                            for (let i = arrayStart; i < targetScriptContent.length; i++) {
+                                if (targetScriptContent[i] === '\\' && inStr) { i++; continue; }
+                                if (targetScriptContent[i] === '"') { inStr = !inStr; }
+                                if (!inStr) {
+                                    if (targetScriptContent[i] === '[') depth++;
+                                    if (targetScriptContent[i] === ']') {
+                                        depth--;
+                                        if (depth === 0) {
+                                            end = i + 1;
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+
+                            if (end !== -1) {
+                                const itemsJson = targetScriptContent.substring(arrayStart, end);
+                                const items = JSON.parse(itemsJson);
+
+                                const processItem = (item) => {
+                                    if (item.video_versions && item.video_versions.length > 0) {
+                                        // It's a video!
+                                        mediaItems.push({
+                                            type: 'video',
+                                            url: item.video_versions[0].url,
+                                            thumbnail: item.image_versions2?.candidates?.[0]?.url
+                                        });
+                                        // DO NOT Add image (thumbnail)
+                                    } else if (item.carousel_media) {
+                                        item.carousel_media.forEach(processItem);
+                                    } else if (item.image_versions2 && item.image_versions2.candidates) {
+                                        const best = item.image_versions2.candidates.sort((a, b) => (b.width * b.height) - (a.width * a.height))[0];
+                                        if (best) {
+                                            mediaItems.push({ type: 'image', url: best.url });
+                                        }
+                                    }
+                                };
+
+                                items.forEach(processItem);
+
+                                // If we successfully parsed items, return them!
+                                if (mediaItems.length > 0) {
+                                    return mediaItems.slice(0, 10).map(m => ({
+                                        type: m.type,
+                                        url: m.url,
+                                        thumbnail: m.thumbnail
+                                    }));
+                                }
+                            }
+                        }
+                    } catch (e) {
+                        console.error("JSON Parse Error (Fallback to Regex):", e);
+                    }
                 }
 
-                // Global Scan on the Target Script
+                // Global Scan on the Target Script (FALLBACK)
                 // 1. VIDEOS
                 const vidRegex = /"video_versions":\[(.*?)\]/g;
                 const vidMatches = [...targetScriptContent.matchAll(vidRegex)];
@@ -120,6 +173,7 @@ export async function fetchPostInfo(url) {
                 });
 
                 // 2. IMAGES
+                // Note: This regex might pick up video thumbnails if the previous JSON parse failed!
                 const imgRegex = /"image_versions2":\{"candidates":\[(.*?)\]\}/g;
                 const imgMatches = [...targetScriptContent.matchAll(imgRegex)];
                 imgMatches.forEach(m => {
@@ -169,7 +223,7 @@ export async function fetchPostInfo(url) {
                 else if (ogImage) mediaItems.push({ type: "image", url: ogImage });
             }
 
-            return mediaItems.slice(0, 10).map(m => ({ type: m.type, url: m.url }));
+            return mediaItems.slice(0, 10).map(m => ({ type: m.type, url: m.url, thumbnail: m.thumbnail }));
         });
 
         if (!result || result.length === 0) {
