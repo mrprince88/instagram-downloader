@@ -14,13 +14,15 @@ export async function fetchPostInfo(url) {
 
         // Launch Puppeteer with conditional logic for Vercel compatibility
         if (process.env.NODE_ENV === "production") {
-            const chromium = await import("@sparticuz/chromium").then(mod => mod.default);
+            const chromium = await import("@sparticuz/chromium-min").then(mod => mod.default);
             const puppeteerCore = await import("puppeteer-core").then(mod => mod.default);
 
             browser = await puppeteerCore.launch({
                 args: chromium.args,
                 defaultViewport: chromium.defaultViewport,
-                executablePath: await chromium.executablePath(),
+                executablePath: await chromium.executablePath(
+                    "https://github.com/Sparticuz/chromium/releases/download/v131.0.1/chromium-v131.0.1-pack.tar"
+                ),
                 headless: chromium.headless,
                 ignoreHTTPSErrors: true,
             });
