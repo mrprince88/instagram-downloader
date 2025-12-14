@@ -1,6 +1,6 @@
 "use server";
 
-import puppeteer from "puppeteer";
+
 
 export async function fetchPostInfo(url) {
     if (!url) return { error: "URL is required" };
@@ -12,11 +12,26 @@ export async function fetchPostInfo(url) {
             return { error: "Please enter a valid Instagram URL" };
         }
 
-        // Launch Puppeteer
-        browser = await puppeteer.launch({
-            headless: "new",
-            args: ['--no-sandbox', '--disable-setuid-sandbox']
-        });
+        // Launch Puppeteer with conditional logic for Vercel compatibility
+        if (process.env.NODE_ENV === "production") {
+            const chromium = await import("@sparticuz/chromium").then(mod => mod.default);
+            const puppeteerCore = await import("puppeteer-core").then(mod => mod.default);
+
+            browser = await puppeteerCore.launch({
+                args: chromium.args,
+                defaultViewport: chromium.defaultViewport,
+                executablePath: await chromium.executablePath(),
+                headless: chromium.headless,
+                ignoreHTTPSErrors: true,
+            });
+        } else {
+            const puppeteer = await import("puppeteer").then(mod => mod.default);
+
+            browser = await puppeteer.launch({
+                headless: "new",
+                args: ['--no-sandbox', '--disable-setuid-sandbox']
+            });
+        }
 
         const page = await browser.newPage();
 
