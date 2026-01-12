@@ -8,6 +8,19 @@ export async function fetchPostInfo(url) {
     let browser = null;
 
     try {
+        // Clean URL params
+        try {
+            const parsedUrl = new URL(url);
+            parsedUrl.searchParams.delete('utm_source');
+            parsedUrl.searchParams.delete('utm_medium');
+            parsedUrl.searchParams.delete('utm_campaign');
+            parsedUrl.searchParams.delete('igsh');
+            url = parsedUrl.toString();
+        } catch (e) {
+            // If URL parsing fails, we'll let the next check handle validity
+            console.error("URL parsing failed: ", e);
+        }
+
         if (!url.includes("instagram.com")) {
             return { error: "Please enter a valid Instagram URL" };
         }
